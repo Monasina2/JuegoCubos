@@ -155,6 +155,117 @@ document.getElementById('clear').onclick = () => {
   if (cubes.size && confirm('¿Limpiar la escena para TODOS los jugadores de la sala? (los juegos guardados no se tocan)')) { clearAll(); socket.emit('setWorld', []); document.getElementById('settingsMenu').hidden = true; }
 };
 
+// ---------- Vista Domo ----------
+let domeMode = false;          // true = previsualizando el domo
+let domeSubMode = 'interior';  // 'interior' | 'fisheye'
+let domeYaw = 0, domePitch = 0;
+let domeDragging = false, domeLast = { x: 0, y: 0 };
+const domeSweetSpot = new THREE.Vector3();
+const domeCamera = new THREE.PerspectiveCamera(100, 1, 0.05, 500);
+
+function updateDomeCameraOrientation() {
+  domeCamera.quaternion.setFromEuler(new THREE.Euler(domePitch, domeYaw, 0, 'YXZ'));
+}
+
+// Cubemap en el "sweet spot" + shader que lo remapea a fisheye equidistante (domemaster)
+const domeCubeRT = new THREE.WebGLCubeRenderTarget(1024, { generateMipmaps: false });
+const domeCubeCam = new THREE.CubeCamera(0.05, 500, domeCubeRT);
+
+const fisheyeScene = new THREE.Scene();
+const fisheyeCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+const fisheyeMat = new THREE.ShaderMaterial({
+  glslVersion: THREE.GLSL3,
+  uniforms: {
+    tCube: { value: domeCubeRT.texture },
+    // Ejes de la cámara del domo: el fisheye queda centrado en hacia dónde estás mirando
+    // (como el eje óptico de un lente fisheye real), no fijo al cenit.
+    uForward: { value: new THREE.Vector3(0, 0, -1) },
+    uRight: { value: new THREE.Vector3(1, 0, 0) },
+    uUp: { value: new THREE.Vector3(0, 1, 0) }
+  },
+  vertexShader: `
+    out vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = vec4(position.xy, 0.0, 1.0);
+    }
+  `,
+  fragmentShader: `
+    precision highp float;
+    uniform samplerCube tCube;
+    uniform vec3 uForward, uRight, uUp;
+    in vec2 vUv;
+    out vec4 outColor;
+    void main() {
+      vec2 p = vUv * 2.0 - 1.0;
+      float r = length(p);
+      if (r > 1.0) { outColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
+      float theta = atan(p.y, p.x);
+      float phi = r * 1.5707963267948966; // borde del círculo = 90° respecto a la dirección de vista
+      vec3 dir = uForward * cos(phi) + (uRight * cos(theta) + uUp * sin(theta)) * sin(phi);
+      outColor = texture(tCube, dir);
+    }
+  `
+});
+fisheyeScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), fisheyeMat));
+
+function renderFisheyePass() {
+  domeCubeCam.position.copy(domeSweetSpot);
+  domeCubeCam.updateMatrixWorld(true);
+  domeCubeCam.update(renderer, scene);
+
+  domeCamera.updateMatrixWorld();
+  const m = domeCamera.matrixWorld.elements;
+  fisheyeMat.uniforms.uRight.value.set(m[0], m[1], m[2]);
+  fisheyeMat.uniforms.uUp.value.set(m[4], m[5], m[6]);
+  fisheyeMat.uniforms.uForward.value.set(-m[8], -m[9], -m[10]);
+  renderer.render(fisheyeScene, fisheyeCam);
+}
+
+function setDomeSubMode(m) {
+  domeSubMode = m;
+  document.getElementById('domeInterior').classList.toggle('active', m === 'interior');
+  document.getElementById('domeFisheye').classList.toggle('active', m === 'fisheye');
+  document.body.classList.toggle('dome-fisheye', domeMode && m === 'fisheye');
+  resize();
+}
+
+function enterDome() {
+  domeMode = true;
+  domeSweetSpot.set(controls.target.x, controls.target.y + 1.5, controls.target.z);
+  domeCamera.position.copy(domeSweetSpot);
+  domeYaw = 0; domePitch = -0.35; // mirando un poco hacia abajo, para ver la construcción al entrar
+  updateDomeCameraOrientation();
+  controls.enabled = false;
+  ghost.visible = false;
+  document.getElementById('domeToggle').textContent = '✕ Salir del domo';
+  document.getElementById('domeControls').hidden = false;
+  setDomeSubMode('interior');
+}
+
+function exitDome() {
+  domeMode = false;
+  domeDragging = false;
+  controls.enabled = true;
+  document.body.classList.remove('dome-fisheye');
+  document.getElementById('domeToggle').textContent = '🌐 Entrar al domo';
+  document.getElementById('domeControls').hidden = true;
+  resize();
+}
+
+document.getElementById('domeToggle').onclick = () => (domeMode ? exitDome() : enterDome());
+document.getElementById('domeInterior').onclick = () => setDomeSubMode('interior');
+document.getElementById('domeFisheye').onclick = () => setDomeSubMode('fisheye');
+document.getElementById('domeExport').onclick = () => {
+  setDomeSubMode('fisheye');
+  renderFisheyePass();
+  const a = document.createElement('a');
+  a.download = `domo-fisheye-${Date.now()}.png`;
+  a.href = renderer.domElement.toDataURL('image/png');
+  a.click();
+};
+addEventListener('keydown', e => { if (e.key === 'Escape' && domeMode) exitDome(); });
+
 // ---------- Cursor fantasma + click ----------
 const ghostMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.5 });
 const ghost = new THREE.Mesh(new THREE.BoxGeometry(1.02, 1.02, 1.02), ghostMat);
@@ -183,6 +294,16 @@ function pick(ev) {
 }
 
 renderer.domElement.addEventListener('pointermove', ev => {
+  if (domeMode) {
+    if (domeDragging) {
+      const dx = ev.clientX - domeLast.x, dy = ev.clientY - domeLast.y;
+      domeLast = { x: ev.clientX, y: ev.clientY };
+      domeYaw -= dx * 0.005;
+      domePitch = THREE.MathUtils.clamp(domePitch - dy * 0.005, -Math.PI / 2 * 0.98, Math.PI / 2 * 0.98);
+      updateDomeCameraOrientation();
+    }
+    return;
+  }
   const p = pick(ev);
   if (p && inBounds(p.x, p.y, p.z)) {
     ghost.position.set(p.x + 0.5, p.y + 0.5, p.z + 0.5);
@@ -190,12 +311,16 @@ renderer.domElement.addEventListener('pointermove', ev => {
     sendCursor(p);
   } else { ghost.visible = false; sendCursor(null); }
 });
-renderer.domElement.addEventListener('pointerleave', () => { ghost.visible = false; sendCursor(null); });
+renderer.domElement.addEventListener('pointerleave', () => { domeDragging = false; if (domeMode) return; ghost.visible = false; sendCursor(null); });
 
 // Click (sin arrastrar) = usar herramienta; arrastrar = rotar cámara
 let down = null;
-renderer.domElement.addEventListener('pointerdown', ev => { down = { x: ev.clientX, y: ev.clientY, b: ev.button }; });
+renderer.domElement.addEventListener('pointerdown', ev => {
+  if (domeMode) { domeDragging = true; domeLast = { x: ev.clientX, y: ev.clientY }; return; }
+  down = { x: ev.clientX, y: ev.clientY, b: ev.button };
+});
 renderer.domElement.addEventListener('pointerup', ev => {
+  if (domeMode) { domeDragging = false; return; }
   if (!down || down.b !== 0) { down = null; return; }
   const moved = Math.hypot(ev.clientX - down.x, ev.clientY - down.y);
   down = null;
@@ -340,9 +465,16 @@ document.getElementById('save').onclick = async () => {
 // ---------- Loop ----------
 function resize() {
   const w = viewport.clientWidth, h = viewport.clientHeight;
-  renderer.setSize(w, h);
+  if (domeMode && domeSubMode === 'fisheye') {
+    const s = Math.min(w, h);
+    renderer.setSize(s, s);
+  } else {
+    renderer.setSize(w, h);
+  }
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
+  domeCamera.aspect = w / h;
+  domeCamera.updateProjectionMatrix();
 }
 addEventListener('resize', resize);
 resize();
@@ -353,6 +485,11 @@ loadList();   // al cargar la página se indexan todos los presets guardados
 
 (function loop() {
   requestAnimationFrame(loop);
-  controls.update();
-  renderer.render(scene, camera);
+  if (domeMode) {
+    if (domeSubMode === 'interior') renderer.render(scene, domeCamera);
+    else renderFisheyePass();
+  } else {
+    controls.update();
+    renderer.render(scene, camera);
+  }
 })();
