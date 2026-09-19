@@ -37,3 +37,7 @@ input[type=text] { width: 100%; padding: 8px; margin-bottom: 8px; background: #1
 #settingsMenu { margin-top: 4px; padding: 8px; background: #1f222a; border: 1px solid #3a3e4a; border-radius: 6px; }
 #settingsMenu[hidden] { display: none; }
 #settingsMenu button { width: 100%; }
+
+#domeControls[hidden] { display: none; }
+
+body.dome-fisheye #viewport { display: flex; align-items: center; justify-content: center; background: #000; }
