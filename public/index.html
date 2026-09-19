@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Editor de Cubos 3D</title>
+<link rel="stylesheet" href="style.css">
+<script type="importmap">
+{ "imports": {
+  "three": "/vendor/three/build/three.module.js",
+  "three/addons/": "/vendor/three/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="viewport"></div>
+
+<aside id="panel">
+  <h1>Editor de Cubos</h1>
+
+  <section>
+    <h2>Sala multijugador</h2>
+    <input type="text" id="playerName" placeholder="Tu nombre" maxlength="20">
+    <div class="row"><span id="roomInfo">Conectando…</span></div>
+    <ul id="players"></ul>
+  </section>
+
+  <section>
+    <h2>Herramienta</h2>
+    <div class="row">
+      <button id="tool-place" class="tool active" title="Atajo: B">🧱 Colocar</button>
+      <button id="tool-erase" class="tool" title="Atajo: E">🧽 Pincel borrar</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Color</h2>
+    <div class="row">
+      <input type="color" id="color" value="#4caf50">
+      <span id="colorHex">#4caf50</span>
+    </div>
+    <div id="palette"></div>
+  </section>
+
+  <section>
+    <h2>Cámara</h2>
+    <div class="row">
+      <button id="zoomIn">＋ Acercar</button>
+      <button id="zoomOut">－ Alejar</button>
+    </div>
+    <div class="row"><button id="resetCam">⟲ Reiniciar vista</button></div>
+    <p class="hint">Arrastrar: rotar · Click derecho + arrastrar: mover · Rueda: zoom</p>
+  </section>
+
+  <section>
+    <div class="row"><span id="count">0 cubos</span></div>
+    <div class="row"><button id="settingsBtn">⚙ Settings</button></div>
+    <div id="settingsMenu" hidden>
+      <button id="clear" class="danger">Limpiar escena</button>
+    </div>
+  </section>
+
+  <section id="saveBox">
+    <h2>Guardar juego</h2>
+    <input type="text" id="presetName" placeholder="Nombre del juego" maxlength="60">
+    <button id="save" class="primary">💾 Guardar juego</button>
+    <div id="status"></div>
+  </section>
+
+  <section id="listBox">
+    <h2>Juegos guardados</h2>
+    <ul id="presetList"></ul>
+  </section>
+</aside>
+
+<script src="/socket.io/socket.io.js"></script>
+<script type="module" src="main.js"></script>
+</body>
+</html>
